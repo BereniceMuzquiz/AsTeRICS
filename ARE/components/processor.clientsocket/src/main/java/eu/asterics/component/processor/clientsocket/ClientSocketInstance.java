@@ -41,10 +41,13 @@ import eu.asterics.mw.model.runtime.impl.DefaultRuntimeEventTriggererPort;
 import eu.asterics.mw.services.AstericsErrorHandling;
 import eu.asterics.mw.services.AREServices;
 
+import java.util.*;
+import java.util.concurrent.*;
 import java.io.*;
 import java.net.*;
-import java.util.ArrayList;
-import java.util.List;
+
+
+
 
 /**
  * 
@@ -70,8 +73,12 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 	int propProtocol = 0;
 
 	// declare member variables here
+	private Socket clientSocket;
+	private BufferedWriter socketOut;
+	private BufferedReader socketIn;
 
-  
+	ExecutorService clientReader = Executors.newSingleThreadExecutor();
+
     
    /**
     * The class constructor.
@@ -306,42 +313,54 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 		  //Stop connection to server
 
           super.stop();
+		  shutdown();
 	  }
 	  
 	  public void connect() {
-		  //Connect to server socket in a new thread
-		  Thread socketThread=new Thread(new Runnable() {
-			  public void run() {
-				
-				try {
-					//connect
-					Socket clientSocket = new Socket(propHostname, propPort);
+		  // Connect to server socket in a new thread
+			try {
+				clientSocket = new Socket(propHostname, propPort);
+				socketOut = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+				socketIn = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 
-					//read line from socket and send it to output port outA which is represented by the variable opOutA.
-					PrintWriter writer = new PrintWriter(clientSocket.getOutputStream(), true);
-					BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+				ExecutorService clientReader = Executors.newSingleThreadExecutor();
 
-					writer.println(clientSocket.getInetAddress());
-					writer.flush();
-					Thread.sleep(2000);                
+				clientReader.execute(new Runnable() {
+					public void run() {
+						// connect
+						// read line from socket and send it to output port outA which is represented by
+						// the variable opOutA.
+						String line;
+						try {
+							while (!Thread.interrupted() && (line = socketIn.readLine()) != null) {
+								opOutA.sendData(ConversionUtils.stringToBytes(line));
+							}
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+					}
+				});
+			} catch (Exception e) {
+				e.printStackTrace();
+				shutdown();
+			}
+	 }
 
-                    do {
-						String line = reader.readLine();
-						opOutA.sendData(ConversionUtils.stringToBytes(line));
-                                                     
-					} while (reader.ready());
-					writer.close();
-					reader.close();
-					clientSocket.close();
+	 private void shutdown() {
+		clientReader.shutdownNow();
+		try {
+			clientReader.awaitTermination(2, TimeUnit.SECONDS);
+		} catch (InterruptedException e1) {
+		}
 
-				} catch (Exception e) {
-					//TODO: handle exception
-					System.out.println(e);
-				}
-				
-
-			  }
-		  });
-		  socketThread.start();
-	  }
+		if (clientSocket != null) {
+			try {
+				clientSocket.close();
+			} catch (Exception e) {
+			}
+			clientSocket = null;
+			socketIn = null;
+			socketOut = null;
+		}
+	}
 }
