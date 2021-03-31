@@ -79,6 +79,8 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 
 	ExecutorService clientReader = Executors.newSingleThreadExecutor();
 
+	private String inputLine; // input string ("inA")
+
     
    /**
     * The class constructor.
@@ -227,6 +229,7 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 	{
 		public void receiveData(byte[] data)
 		{
+			inputLine = ConversionUtils.stringFromBytes(data);
 				 // insert data reception handling here, e.g.: 
 				 // myVar = ConversionUtils.doubleFromBytes(data); 
 				 // myVar = ConversionUtils.stringFromBytes(data); 
@@ -252,7 +255,8 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 	{
 		public void receiveEvent(final String data)
 		{
-				 // insert event handling here 
+				 // insert event handling here
+				 connect(); 
 		}
 	};
 	final IRuntimeEventListenerPort elpDisconnect = new IRuntimeEventListenerPort()
@@ -260,13 +264,16 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 		public void receiveEvent(final String data)
 		{
 				 // insert event handling here 
+				 shutdown();
 		}
 	};
 	final IRuntimeEventListenerPort elpReconnect = new IRuntimeEventListenerPort()
 	{
 		public void receiveEvent(final String data)
 		{
-				 // insert event handling here 
+				 // insert event handling here	 
+				 shutdown(); 
+				 connect();
 		}
 	};
 
@@ -328,22 +335,33 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 				clientReader.execute(new Runnable() {
 					public void run() {
 						// connect
-						// read line from socket and send it to output port outA which is represented by
-						// the variable opOutA.
+
 						String line;
 						try {
+						//read line from inA which is saved in variable inputLine and send it to the server
+							while (!Thread.interrupted() && (inputLine != null)) {
+								socketOut.write(inputLine);
+								socketOut.flush();
+								socketOut.close();
+							}
+						// read line from socket and send it to output port outA which is represented by
+						// the variable opOutA.
 							while (!Thread.interrupted() && (line = socketIn.readLine()) != null) {
 								opOutA.sendData(ConversionUtils.stringToBytes(line));
 							}
+
 						} catch (Exception e) {
 							e.printStackTrace();
 						}
+						
 					}
 				});
 			} catch (Exception e) {
 				e.printStackTrace();
 				shutdown();
 			}
+			//trigger event connected
+			etpConnected.raiseEvent();
 	 }
 
 	 private void shutdown() {
@@ -362,5 +380,7 @@ public class ClientSocketInstance extends AbstractRuntimeComponentInstance
 			socketIn = null;
 			socketOut = null;
 		}
+		//trigger event disconnected
+		etpDisconnected.raiseEvent();
 	}
 }
